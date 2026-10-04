@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Civilization Simulator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { margin-bottom: 5px; color: #fff; }
+        .controls {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        button {
+            background-color: #333;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-weight: bold;
+            border-radius: 4px;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        button:hover { background-color: #444; }
+        button:active { transform: scale(0.98); }
+        #btn-reset { background-color: #c62828; border-color: #b71c1c; }
+        #btn-reset:hover { background-color: #d32f2f; }
+        #btn-copy { background-color: #0288d1; border-color: #01579b; }
+        #btn-copy:hover { background-color: #039be5; }
+        .game-container {
+            display: flex;
+            gap: 20px;
+            max-width: 1200px;
+            width: 100%;
+        }
+        #map {
+            display: grid;
+            grid-template-columns: repeat(12, 45px);
+            grid-template-rows: repeat(12, 45px);
+            gap: 2px;
+            background-color: #333;
+            padding: 5px;
+            border-radius: 4px;
+        }
+        .tile {
+            width: 45px;
+            height: 45px;
+            background-color: #2e7d32; /* Plains */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: bold;
+            position: relative;
+            user-select: none;
+        }
+        .tile.water { background-color: #1565c0; }
+        .tile.mountain { background-color: #37474f; }
+        .city-badge {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+            font-size: 10px;
+            z-index: 2;
+        }
+        .unit-badge {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            position: absolute;
+            bottom: 3px;
+            right: 3px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 9px;
+            font-weight: bold;
+            border: 1px solid white;
+            z-index: 3;
+            box-shadow: 0 0 3px rgba(0,0,0,0.5);
+        }
+        .sidebar {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            background-color: #262626;
+            padding: 15px;
+            border-radius: 4px;
+            max-height: 560px;
+            overflow-y: auto;
+        }
+        .civ-card {
+            border-left: 5px solid transparent;
+            padding-left: 10px;
+            margin-bottom: 10px;
+        }
+        .log-box {
+            background-color: #111;
+            padding: 10px;
+            height: 120px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            border-radius: 4px;
+            color: #a5d6a7;
+        }
+        .tech-tag {
+            display: inline-block;
+            background-color: #444;
+            padding: 2px 6px;
+            font-size: 10px;
+            border-radius: 3px;
+            margin-right: 3px;
+            margin-top: 3px;
+        }
+        .tech-tag.unlocked { background-color: #2e7d32; }
+    </style>
+</head>
+<body>
+
+    <h1>Civilization AI Simulator</h1>
+    <div id="turn-counter" style="margin-bottom: 10px; font-size: 16px;">Turn: 0</div>
+
+    <div class="controls">
+        <button id="btn-step">Next Turn</button>
+        <button id="btn-play">Play</button>
+        <button id="btn-reset">Reset Simulation</button>
+        <button id="btn-copy">📋 Copy Code</button>
+    </div>
+
+    <div class="game-container">
+        <div id="map"></div>
+        <div class="sidebar">
+            <h2>Empire Status</h2>
+            <div id="civs-info"></div>
+            <h3>World Events</h3>
+            <div id="log" class="log-box"></div>
+        </div>
+    </div>
+
+    <script>
+        const MAP_SIZE = 12;
+        let turn = 0;
+        let isPlaying = false;
+        let gameInterval = null;
+        let map = [];
+        const terrainTypes = ['land', 'land', 'land', 'land', 'mountain', 'water'];
+
+        let civs = {};
+
+        const techTree = [
+            { id: 'Agriculture', cost: 15, type: 'food_boost', label: '🌾 Agriculture (+Food)' },
+            { id: 'Iron Working', cost: 35, type: 'unlock_swordsman', label: '⚔️ Iron Working (Swordsman)' },
+            { id: 'Industrialization', cost: 70, type: 'prod_boost', label: '⚙️ Industrialization (+Prod)' },
+            { id: 'Gunpowder', cost: 120, type: 'unlock_musketeer', label: '💥 Gunpowder (Musketeer)' }
+        ];
+
+        function resetSimulation() {
+            if (isPlaying) {
+                isPlaying = false;
+                clearInterval(gameInterval);
+                document.getElementById('btn-play').innerText = 'Play';
+            }
+
+            turn = 0;
+            document.getElementById('turn-counter').innerText = `Turn: ${turn}`;
+            document.getElementById('log').innerHTML = '';
+
+            civs = {
+                'Rome': { color: '#e53935', emoji: '🏛️', food: 20, prod: 20, science: 0, techs: [], cities: [], units: [], live: true },
+                'Egypt': { color: '#ffb300', emoji: '📐', food: 20, prod: 20, science: 0, techs: [], cities: [], units: [], live: true },
+                'Japan': { color: '#1e88e5', emoji: '🏯', food: 20, prod: 20, science: 0, techs: [], cities: [], units: [], live: true }
+            };
+
+            initMap();
+            renderSidebar();
+        }
+
+        function initMap() {
+            const mapEl = document.getElementById('map');
+            mapEl.innerHTML = '';
+            map = [];
+
+            for (let r = 0; r < MAP_SIZE; r++) {
+                map[r] = [];
+                for (let c = 0; c < MAP_SIZE; c++) {
+                    let terrain = terrainTypes[Math.floor(Math.random() * terrainTypes.length)];
+                    if (r === 0 || r === MAP_SIZE-1 || c === 0 || c === MAP_SIZE-1) {
+                        if (Math.random() > 0.3) terrain = 'water';
+                    }
+
+                    map[r][c] = { r, c, type: terrain, city: null, unit: null };
+
+                    const tileEl = document.createElement('div');
+                    tileEl.id = `tile-${r}-${c}`;
+                    tileEl.className = `tile ${terrain}`;
+                    mapEl.appendChild(tileEl);
+                }
+            }
+
+            spawnCapital('Rome', 2, 2);
+            spawnCapital('Egypt', 9, 3);
+            spawnCapital('Japan', 6, 9);
+            updateVisuals();
+        }
+
+        function spawnCapital(civName, r, c) {
+            map[r][c].type = 'land'; 
+            map[r][c].city = { civName, id: civs[civName].cities.length + 1, isCapital: true };
+            civs[civName].cities.push({ r, c, pop: 1 });
+            logEvent(`${civs[civName].emoji} ${civName} founded their Capital!`);
+        }
+
+        function logEvent(msg) {
+            const logBox = document.getElementById('log');
+            logBox.innerHTML += `[Turn ${turn}] ${msg}<br>`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function runTurn() {
+            turn++;
+            document.getElementById('turn-counter').innerText = `Turn: ${turn}`;
+
+            for (let name in civs) {
+                let civ = civs[name];
+                if (!civ.live) continue;
+
+                let turnFood = civ.cities.length * 3;
+                let turnProd = civ.cities.length * 3;
+                let turnSci = civ.cities.length * 2;
+
+                if (civ.techs.includes('Agriculture')) turnFood += civ.cities.length * 2;
+                if (civ.techs.includes('Industrialization')) turnProd += civ.cities.length * 3;
+
+                civ.food += turnFood;
+                civ.prod += turnProd;
+                civ.science += turnSci;
+
+                let nextTech = techTree.find(t => !civ.techs.includes(t.id));
+                if (nextTech && civ.science >= nextTech.cost) {
+                    civ.science -= nextTech.cost;
+                    civ.techs.push(nextTech.id);
+                    logEvent(`${civ.emoji} ${name} researched <b>${nextTech.id}</b>!`);
+                }
+
+                if (civ.prod >= 40) {
+                    let rand = Math.random();
+                    let unitType = 'W'; 
+                    
+                    if (civ.techs.includes('Gunpowder')) unitType = 'M'; 
+                    else if (civ.techs.includes('Iron Working')) unitType = 'S'; 
+
+                    if (civ.cities.length < 4 && rand > 0.4) {
+                        unitType = 'Set'; 
+                    }
+
+                    for (let city of civ.cities) {
+                        let neighbors = getAdjacentTiles(city.r, city.c);
+                        let spawnTile = neighbors.find(t => t.type === 'land' && !t.unit && !t.city);
+                        if (spawnTile) {
+                            map[spawnTile.r][spawnTile.c].unit = { civName: name, type: unitType };
+                            civ.units.push({ r: spawnTile.r, c: spawnTile.c, type: unitType });
